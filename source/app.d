@@ -70,24 +70,58 @@ void setupWorkerServer(Tid gameServerTid) nothrow
     }
 }
 
-void handleWebSocketConnection(scope WebSocket socket, Tid gameServer)
+struct ShutdownWriter
 {
-    gameServer.send(ClientConnected(thisTid));
-
-    logInfo("Got new web socket connection.");
-    while (socket.connected)
+}
+// Listens to the Game Server, writes to Socket
+void socketWriter(WebSocket socket) nothrow
+{
+    try
     {
-        string data;
-        if (socket.waitForData(10.msecs))
+        bool running = true;
+        while (socket.connected && running)
         {
-            data = socket.receiveText();
+            receive((string message) { socket.send(message); }, (ShutdownWriter _) {
+                running = false;
+            });
+        }
+    }
+    catch (Exception e)
+    {
+        logError("socketWriter failed");
+    }
+}
+
+// Listens to the Socket, writes to the Game Server
+void socketListener(WebSocket socket, Tid gameServer)
+{
+    try
+    {
+        while (socket.connected)
+        {
+            string data = socket.receiveText();
             gameServer.send(data);
         }
-
-        receiveTimeout(10.msecs, (string message) { socket.send(message); });
     }
+    catch (Exception e)
+    {
+        logError("socketListener failed");
+    }
+}
 
-    gameServer.send(ClientDisconnected(thisTid));
+void handleWebSocketConnection(scope WebSocket socket, Tid gameServer)
+{
+    auto writer = runTask(&socketWriter, socket);
+
+    gameServer.send(ClientConnected(writer.tid));
+
+    logInfo("Got new web socket connection.");
+
+    socketListener(socket, gameServer);
+
+    gameServer.send(ClientDisconnected(writer.tid));
+    writer.tid.send(ShutdownWriter());
+
     logInfo("Client disconnected.");
 }
 
