@@ -9,8 +9,15 @@ import vibe.http.websockets : WebSocket, handleWebSockets;
 import core.time;
 import std.algorithm : remove;
 
-struct ClientConnected { Tid tid; }
-struct ClientDisconnected { Tid tid; }
+struct ClientConnected
+{
+    Tid tid;
+}
+
+struct ClientDisconnected
+{
+    Tid tid;
+}
 
 void gameServerTask() nothrow
 {
@@ -41,21 +48,26 @@ void gameServerTask() nothrow
     }
 }
 
-int main(string[] args)
+void setupWorkerServer(Tid gameServerTid) nothrow
 {
-    auto gameServer = runTask(&gameServerTask);
+    try
+    {
+        auto router = new URLRouter;
+        router.get("/ws", handleWebSockets((WebSocket socket) {
+                handleWebSocketConnection(socket, gameServerTid);
+            }));
 
-    auto router = new URLRouter;
-    router.get("/ws", handleWebSockets((WebSocket socket) {
-            handleWebSocketConnection(socket, gameServer.tid);
-        }));
+        auto settings = new HTTPServerSettings;
+        settings.port = 8080;
+        settings.bindAddresses = ["::1", "127.0.0.1"];
+        settings.options |= HTTPServerOption.reusePort;
 
-    auto settings = new HTTPServerSettings;
-    settings.port = 8080;
-    settings.bindAddresses = ["::1", "127.0.0.1"];
-
-    listenHTTP(settings, router);
-    return runApplication(&args);
+        listenHTTP(settings, router);
+    }
+    catch (Exception e)
+    {
+        logError("Failed to start worker server on a thread: %s", e.msg);
+    }
 }
 
 void handleWebSocketConnection(scope WebSocket socket, Tid gameServer)
@@ -77,4 +89,13 @@ void handleWebSocketConnection(scope WebSocket socket, Tid gameServer)
 
     gameServer.send(ClientDisconnected(thisTid));
     logInfo("Client disconnected.");
+}
+
+int main(string[] args)
+{
+    auto gameServer = runTask(&gameServerTask);
+
+    runWorkerTaskDist(&setupWorkerServer, gameServer.tid);
+
+    return runApplication(&args);
 }
