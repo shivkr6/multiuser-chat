@@ -19,7 +19,7 @@ struct ClientDisconnected
     Tid tid;
 }
 
-void gameServerTask() nothrow
+void chatServerTask() nothrow
 {
     Tid[] clients;
     try
@@ -44,17 +44,17 @@ void gameServerTask() nothrow
     }
     catch (Exception e)
     {
-        logError("Game server task encountered an error: %s", e.msg);
+        logError("Chat server task encountered an error: %s", e.msg);
     }
 }
 
-void setupWorkerServer(Tid gameServerTid) nothrow
+void setupWorkerServer(Tid chatServerTid) nothrow
 {
     try
     {
         auto router = new URLRouter;
         router.get("/ws", handleWebSockets((WebSocket socket) {
-                handleWebSocketConnection(socket, gameServerTid);
+                handleWebSocketConnection(socket, chatServerTid);
             }));
 
         auto settings = new HTTPServerSettings;
@@ -73,7 +73,7 @@ void setupWorkerServer(Tid gameServerTid) nothrow
 struct ShutdownWriter
 {
 }
-// Listens to the Game Server, writes to Socket
+// Listens to the Chat Server, writes to Socket
 void socketWriter(WebSocket socket) nothrow
 {
     try
@@ -92,15 +92,15 @@ void socketWriter(WebSocket socket) nothrow
     }
 }
 
-// Listens to the Socket, writes to the Game Server
-void socketListener(WebSocket socket, Tid gameServer)
+// Listens to the Socket, writes to the Chat Server
+void socketListener(WebSocket socket, Tid chatServer)
 {
     try
     {
         while (socket.connected)
         {
             string data = socket.receiveText();
-            gameServer.send(data);
+            chatServer.send(data);
         }
     }
     catch (Exception e)
@@ -109,17 +109,17 @@ void socketListener(WebSocket socket, Tid gameServer)
     }
 }
 
-void handleWebSocketConnection(scope WebSocket socket, Tid gameServer)
+void handleWebSocketConnection(scope WebSocket socket, Tid chatServer)
 {
     auto writer = runTask(&socketWriter, socket);
 
-    gameServer.send(ClientConnected(writer.tid));
+    chatServer.send(ClientConnected(writer.tid));
 
     logInfo("Got new web socket connection.");
 
-    socketListener(socket, gameServer);
+    socketListener(socket, chatServer);
 
-    gameServer.send(ClientDisconnected(writer.tid));
+    chatServer.send(ClientDisconnected(writer.tid));
     writer.tid.send(ShutdownWriter());
 
     logInfo("Client disconnected.");
@@ -127,9 +127,9 @@ void handleWebSocketConnection(scope WebSocket socket, Tid gameServer)
 
 int main(string[] args)
 {
-    auto gameServer = runTask(&gameServerTask);
+    auto chatServer = runTask(&chatServerTask);
 
-    runWorkerTaskDist(&setupWorkerServer, gameServer.tid);
+    runWorkerTaskDist(&setupWorkerServer, chatServer.tid);
 
     return runApplication(&args);
 }
